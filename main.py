@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -16,6 +17,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -24,7 +26,11 @@ from PyQt6.QtWidgets import (
 )
 
 import db
+import export_utils
 import models as app_models
+from tabs import HistoryTab, ModelsTab, SettingsTab
+
+RESPONSE_MIN_ROW_HEIGHT = 100
 
 
 class SendWorker(QThread):
@@ -44,19 +50,16 @@ class SendWorker(QThread):
             self.failed.emit(str(exc))
 
 
-class MainWindow(QMainWindow):
-    def __init__(self) -> None:
-        super().__init__()
-        self.setWindowTitle("ChatList")
-        self.resize(960, 720)
+class PromptTab(QWidget):
+    results_saved = pyqtSignal()
 
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self._worker: SendWorker | None = None
         self._current_prompt_id: int | None = None
         self._loading_saved_prompt = False
 
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        layout = QVBoxLayout(self)
 
         layout.addWidget(QLabel("Сохранённые промты"))
         self.prompt_combo = QComboBox()
@@ -83,6 +86,14 @@ class MainWindow(QMainWindow):
         self.save_button.clicked.connect(self.on_save)
         self.save_button.setEnabled(False)
         buttons_row.addWidget(self.save_button)
+
+        export_md_btn = QPushButton("Экспорт Markdown")
+        export_md_btn.clicked.connect(self.on_export_markdown)
+        buttons_row.addWidget(export_md_btn)
+
+        export_json_btn = QPushButton("Экспорт JSON")
+        export_json_btn.clicked.connect(self.on_export_json)
+        buttons_row.addWidget(export_json_btn)
         layout.addLayout(buttons_row)
 
         self.progress = QProgressBar()
@@ -93,10 +104,21 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Результаты"))
         self.results_table = QTableWidget(0, 3)
         self.results_table.setHorizontalHeaderLabels(["Модель", "Ответ", "Выбрать"])
-        self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self.results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
         self.results_table.setWordWrap(True)
+        self.results_table.verticalHeader().setDefaultSectionSize(RESPONSE_MIN_ROW_HEIGHT)
+        self.results_table.verticalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.results_table.setMinimumHeight(300)
         layout.addWidget(self.results_table)
 
         self.status_label = QLabel("Готово")
@@ -146,7 +168,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "ChatList",
-                "Нет активных моделей. Включите модели в базе данных (is_active = 1).",
+                "Нет активных моделей. Включите модели на вкладке «Модели».",
             )
             return
 
@@ -203,6 +225,33 @@ class MainWindow(QMainWindow):
         self.clear_results_table()
         self.save_button.setEnabled(False)
         self.status_label.setText(f"Сохранено результатов: {saved}")
+        self.results_saved.emit()
+
+    def on_export_markdown(self) -> None:
+        self._export_file("Markdown (*.md)", ".md", export_utils.export_to_markdown)
+
+    def on_export_json(self) -> None:
+        self._export_file("JSON (*.json)", ".json", export_utils.export_to_json)
+
+    def _export_file(self, filter_str: str, suffix: str, exporter) -> None:
+        results = self._results_for_export()
+        if not results:
+            QMessageBox.information(self, "ChatList", "Нет результатов для экспорта.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Сохранить файл", "", filter_str)
+        if not path:
+            return
+        if not path.endswith(suffix):
+            path += suffix
+        content = exporter(results, self.prompt_edit.toPlainText().strip())
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(content)
+        QMessageBox.information(self, "ChatList", f"Файл сохранён: {path}")
+
+    def _results_for_export(self) -> list[app_models.TempResult]:
+        results = self.read_results_from_table()
+        selected = [item for item in results if item.selected]
+        return selected if selected else results
 
     def set_loading(self, loading: bool) -> None:
         self.progress.setVisible(loading)
@@ -220,10 +269,16 @@ class MainWindow(QMainWindow):
             name_item = QTableWidgetItem(item.model_name)
             name_item.setData(Qt.ItemDataRole.UserRole, item.model_id)
             name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            name_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+            )
             self.results_table.setItem(row_index, 0, name_item)
 
             response_item = QTableWidgetItem(item.response_text)
             response_item.setFlags(response_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            response_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+            )
             self.results_table.setItem(row_index, 1, response_item)
 
             select_item = QTableWidgetItem()
@@ -236,6 +291,9 @@ class MainWindow(QMainWindow):
             self.results_table.setItem(row_index, 2, select_item)
 
         self.results_table.resizeRowsToContents()
+        for row_index in range(len(results)):
+            if self.results_table.rowHeight(row_index) < RESPONSE_MIN_ROW_HEIGHT:
+                self.results_table.setRowHeight(row_index, RESPONSE_MIN_ROW_HEIGHT)
 
     def read_results_from_table(self) -> list[app_models.TempResult]:
         results: list[app_models.TempResult] = []
@@ -257,6 +315,28 @@ class MainWindow(QMainWindow):
                 )
             )
         return results
+
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("ChatList")
+        self.resize(1000, 760)
+
+        tabs = QTabWidget()
+        self.prompt_tab = PromptTab()
+        self.models_tab = ModelsTab()
+        self.history_tab = HistoryTab()
+        self.settings_tab = SettingsTab()
+
+        tabs.addTab(self.prompt_tab, "Запрос")
+        tabs.addTab(self.models_tab, "Модели")
+        tabs.addTab(self.history_tab, "История")
+        tabs.addTab(self.settings_tab, "Настройки")
+        self.setCentralWidget(tabs)
+
+        self.models_tab.changed.connect(self.prompt_tab.reload_saved_prompts)
+        self.prompt_tab.results_saved.connect(self.history_tab.reload)
 
 
 def main() -> None:

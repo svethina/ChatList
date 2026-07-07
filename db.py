@@ -56,6 +56,22 @@ CREATE TABLE IF NOT EXISTS settings (
 
 SEED_MODELS: list[dict[str, Any]] = [
     {
+        "name": "OpenRouter GPT-4o mini",
+        "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "api_id": "openai/gpt-4o-mini",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "is_active": 0,
+        "provider": "openrouter",
+    },
+    {
+        "name": "Tencent Hy3",
+        "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "api_id": "tencent/hy3-preview",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "is_active": 0,
+        "provider": "openrouter",
+    },
+    {
         "name": "GPT-4o",
         "api_url": "https://api.openai.com/v1/chat/completions",
         "api_id": "gpt-4o",
@@ -71,20 +87,13 @@ SEED_MODELS: list[dict[str, Any]] = [
         "is_active": 0,
         "provider": "deepseek",
     },
-    {
-        "name": "Groq Llama",
-        "api_url": "https://api.groq.com/openai/v1/chat/completions",
-        "api_id": "llama-3.3-70b-versatile",
-        "api_key_env": "GROQ_API_KEY",
-        "is_active": 0,
-        "provider": "groq",
-    },
 ]
 
 DEFAULT_SETTINGS: dict[str, str] = {
     "request_timeout": "60",
     "db_path": DEFAULT_DB_PATH,
     "log_requests": "1",
+    "log_file": "chatlist.log",
 }
 
 
@@ -117,6 +126,7 @@ def init_db(db_path: str | None = None) -> None:
     with get_connection(path) as conn:
         conn.executescript(SCHEMA_SQL)
     seed_defaults(db_path=path)
+    activate_models_with_keys(db_path=path)
 
 
 def seed_defaults(db_path: str | None = None) -> None:
@@ -256,6 +266,40 @@ def list_models(
     return [_row_to_dict(row) for row in rows]
 
 
+def search_models(
+    query: str,
+    db_path: str | None = None,
+) -> list[dict[str, Any]]:
+    pattern = f"%{query}%"
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM models
+            WHERE name LIKE ?
+               OR api_url LIKE ?
+               OR api_id LIKE ?
+               OR IFNULL(provider, '') LIKE ?
+            ORDER BY name
+            """,
+            (pattern, pattern, pattern, pattern),
+        ).fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
+def activate_models_with_keys(db_path: str | None = None) -> None:
+    """Активирует модели, для которых задан API-ключ в окружении."""
+    import os
+
+    with get_connection(db_path) as conn:
+        rows = conn.execute("SELECT id, api_key_env FROM models").fetchall()
+        for row in rows:
+            if os.getenv(row["api_key_env"]):
+                conn.execute(
+                    "UPDATE models SET is_active = 1 WHERE id = ?",
+                    (row["id"],),
+                )
+
+
 # --- results ---
 
 
@@ -307,6 +351,35 @@ def list_results(db_path: str | None = None) -> list[dict[str, Any]]:
     return [_row_to_dict(row) for row in rows]
 
 
+def search_results(
+    query: str,
+    db_path: str | None = None,
+) -> list[dict[str, Any]]:
+    pattern = f"%{query}%"
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                r.id,
+                r.prompt_id,
+                r.model_id,
+                r.response_text,
+                r.created_at,
+                p.prompt AS prompt_text,
+                m.name AS model_name
+            FROM results r
+            JOIN prompts p ON p.id = r.prompt_id
+            JOIN models m ON m.id = r.model_id
+            WHERE r.response_text LIKE ?
+               OR p.prompt LIKE ?
+               OR m.name LIKE ?
+            ORDER BY r.created_at DESC
+            """,
+            (pattern, pattern, pattern),
+        ).fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
 # --- settings ---
 
 
@@ -328,3 +401,9 @@ def set_setting(key: str, value: str, db_path: str | None = None) -> None:
             """,
             (key, value),
         )
+
+
+def list_settings(db_path: str | None = None) -> list[dict[str, str]]:
+    with get_connection(db_path) as conn:
+        rows = conn.execute("SELECT key, value FROM settings ORDER BY key").fetchall()
+    return [{"key": row["key"], "value": row["value"]} for row in rows]

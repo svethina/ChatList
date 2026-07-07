@@ -149,6 +149,7 @@ activemq-data/
 
 # Environments
 .env
+.env.local
 .envrc
 .venv
 env/
@@ -220,3 +221,5 @@ __marimo__/
 # ChatList
 chatlist.db
 chatlist.db-journal
+chatlist.log
+chatlist.log.*
