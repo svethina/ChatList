@@ -82,7 +82,11 @@ def load_saved_prompts() -> list[Prompt]:
 
 
 def load_active_models() -> list[Model]:
-    return [Model.from_row(row) for row in db.list_models(active_only=True)]
+    return [
+        Model.from_row(row)
+        for row in db.list_models(active_only=True)
+        if db.is_free_model(row["api_id"], row.get("provider"))
+    ]
 
 
 def get_temp_results() -> list[TempResult]:

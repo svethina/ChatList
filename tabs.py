@@ -22,9 +22,10 @@ from PyQt6.QtWidgets import (
 )
 
 import db
+from markdown_viewer import open_markdown_viewer
 
 
-PROVIDERS = ["openai", "openrouter", "deepseek", "groq"]
+PROVIDERS = ["openai", "openrouter", "deepseek", "groq", "huggingface"]
 RESPONSE_MIN_ROW_HEIGHT = 100
 
 
@@ -86,6 +87,15 @@ class ModelEditDialog(QDialog):
         if not data["api_id"] or not data["api_key_env"]:
             QMessageBox.warning(self, "ChatList", "Укажите API ID и переменную окружения.")
             return
+        if not db.is_free_model(data["api_id"], data["provider"]):
+            QMessageBox.warning(
+                self,
+                "ChatList",
+                "Разрешены только бесплатные модели:\n"
+                "• OpenRouter: api_id с суффиксом :free или openrouter/free\n"
+                "• Hugging Face: provider = huggingface",
+            )
+            return
         super().accept()
 
 
@@ -134,7 +144,18 @@ class ModelsTab(QWidget):
 
     def reload(self) -> None:
         query = self.search_edit.text().strip()
-        rows = db.search_models(query) if query else db.list_models()
+        if query:
+            rows = [
+                r
+                for r in db.search_models(query)
+                if r["is_active"] and db.is_free_model(r["api_id"], r.get("provider"))
+            ]
+        else:
+            rows = [
+                r
+                for r in db.list_models(active_only=True)
+                if db.is_free_model(r["api_id"], r.get("provider"))
+            ]
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(rows))
         for row_index, row in enumerate(rows):
@@ -164,14 +185,18 @@ class ModelsTab(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         data = dialog.get_data()
-        db.add_model(
-            data["name"],
-            data["api_url"],
-            data["api_id"],
-            data["api_key_env"],
-            data["is_active"],
-            data["provider"],
-        )
+        try:
+            db.add_model(
+                data["name"],
+                data["api_url"],
+                data["api_id"],
+                data["api_key_env"],
+                data["is_active"],
+                data["provider"],
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "ChatList", str(exc))
+            return
         self.reload()
         self.changed.emit()
 
@@ -187,7 +212,11 @@ class ModelsTab(QWidget):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         data = dialog.get_data()
-        db.update_model(model_id, **data)
+        try:
+            db.update_model(model_id, **data)
+        except ValueError as exc:
+            QMessageBox.warning(self, "ChatList", str(exc))
+            return
         self.reload()
         self.changed.emit()
 
@@ -225,14 +254,17 @@ class HistoryTab(QWidget):
         search_row.addWidget(self.search_edit)
         layout.addLayout(search_row)
 
-        self.table = QTableWidget(0, 5)
+        self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["Дата", "Модель", "Промт", "Ответ", "ID"]
+            ["Дата", "Модель", "Промт", "Ответ", "ID", "Открыть"]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSortingEnabled(True)
         self.table.horizontalHeader().setSectionResizeMode(
             3, QHeaderView.ResizeMode.Stretch
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            5, QHeaderView.ResizeMode.ResizeToContents
         )
         self.table.setWordWrap(True)
         self.table.verticalHeader().setDefaultSectionSize(RESPONSE_MIN_ROW_HEIGHT)
@@ -270,12 +302,36 @@ class HistoryTab(QWidget):
                     item.setTextAlignment(
                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
                     )
+                if col_index == 2:
+                    item.setData(Qt.ItemDataRole.UserRole, row["prompt_text"])
                 self.table.setItem(row_index, col_index, item)
+
+            open_btn = QPushButton("Открыть")
+            open_btn.clicked.connect(
+                lambda _checked=False, row=row_index: self.on_open_response(row)
+            )
+            self.table.setCellWidget(row_index, 5, open_btn)
         self.table.setSortingEnabled(True)
         self.table.resizeRowsToContents()
         for row_index in range(len(rows)):
             if self.table.rowHeight(row_index) < RESPONSE_MIN_ROW_HEIGHT:
                 self.table.setRowHeight(row_index, RESPONSE_MIN_ROW_HEIGHT)
+
+    def on_open_response(self, row_index: int) -> None:
+        model_item = self.table.item(row_index, 1)
+        prompt_item = self.table.item(row_index, 2)
+        response_item = self.table.item(row_index, 3)
+        if not model_item or not response_item:
+            return
+        prompt_text = ""
+        if prompt_item:
+            prompt_text = prompt_item.data(Qt.ItemDataRole.UserRole) or prompt_item.text()
+        open_markdown_viewer(
+            self,
+            model_item.text(),
+            response_item.text(),
+            str(prompt_text),
+        )
 
 
 class SettingsTab(QWidget):
@@ -289,11 +345,13 @@ class SettingsTab(QWidget):
         self.db_path_edit = QLineEdit()
         self.log_requests_check = QCheckBox("Логировать HTTP-запросы в файл")
         self.log_file_edit = QLineEdit()
+        self.use_proxy_check = QCheckBox("Использовать системный прокси (HTTP/SOCKS)")
 
         layout.addRow("Таймаут запроса (сек)", self.timeout_edit)
         layout.addRow("Путь к БД", self.db_path_edit)
         layout.addRow("", self.log_requests_check)
         layout.addRow("Файл логов", self.log_file_edit)
+        layout.addRow("", self.use_proxy_check)
 
         save_btn = QPushButton("Сохранить настройки")
         save_btn.clicked.connect(self.save)
@@ -310,6 +368,7 @@ class SettingsTab(QWidget):
         self.db_path_edit.setText(db.get_setting("db_path") or "chatlist.db")
         self.log_requests_check.setChecked((db.get_setting("log_requests") or "0") == "1")
         self.log_file_edit.setText(db.get_setting("log_file") or "chatlist.log")
+        self.use_proxy_check.setChecked((db.get_setting("use_system_proxy") or "0") == "1")
 
     def save(self) -> None:
         timeout = self.timeout_edit.text().strip()
@@ -329,5 +388,8 @@ class SettingsTab(QWidget):
         db.set_setting("db_path", db_path)
         db.set_setting("log_requests", "1" if self.log_requests_check.isChecked() else "0")
         db.set_setting("log_file", log_file)
+        db.set_setting(
+            "use_system_proxy", "1" if self.use_proxy_check.isChecked() else "0"
+        )
         QMessageBox.information(self, "ChatList", "Настройки сохранены.")
         self.saved.emit()

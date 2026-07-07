@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 import db
 import export_utils
 import models as app_models
+from markdown_viewer import open_markdown_viewer
 from tabs import HistoryTab, ModelsTab, SettingsTab
 
 RESPONSE_MIN_ROW_HEIGHT = 100
@@ -102,8 +103,10 @@ class PromptTab(QWidget):
         layout.addWidget(self.progress)
 
         layout.addWidget(QLabel("Результаты"))
-        self.results_table = QTableWidget(0, 3)
-        self.results_table.setHorizontalHeaderLabels(["Модель", "Ответ", "Выбрать"])
+        self.results_table = QTableWidget(0, 4)
+        self.results_table.setHorizontalHeaderLabels(
+            ["Модель", "Ответ", "Выбрать", "Открыть"]
+        )
         self.results_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.ResizeToContents
         )
@@ -112,6 +115,9 @@ class PromptTab(QWidget):
         )
         self.results_table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.results_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
         )
         self.results_table.setWordWrap(True)
         self.results_table.verticalHeader().setDefaultSectionSize(RESPONSE_MIN_ROW_HEIGHT)
@@ -290,6 +296,12 @@ class PromptTab(QWidget):
             )
             self.results_table.setItem(row_index, 2, select_item)
 
+            open_btn = QPushButton("Открыть")
+            open_btn.clicked.connect(
+                lambda _checked=False, row=row_index: self.on_open_response(row)
+            )
+            self.results_table.setCellWidget(row_index, 3, open_btn)
+
         self.results_table.resizeRowsToContents()
         for row_index in range(len(results)):
             if self.results_table.rowHeight(row_index) < RESPONSE_MIN_ROW_HEIGHT:
@@ -315,6 +327,18 @@ class PromptTab(QWidget):
                 )
             )
         return results
+
+    def on_open_response(self, row_index: int) -> None:
+        name_item = self.results_table.item(row_index, 0)
+        response_item = self.results_table.item(row_index, 1)
+        if not name_item or not response_item:
+            return
+        open_markdown_viewer(
+            self,
+            name_item.text(),
+            response_item.text(),
+            self.prompt_edit.toPlainText().strip(),
+        )
 
 
 class MainWindow(QMainWindow):

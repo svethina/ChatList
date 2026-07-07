@@ -19,7 +19,7 @@ load_dotenv(".env.local", override=False)
 logger = logging.getLogger(__name__)
 _logging_configured = False
 
-OPENAI_COMPATIBLE_PROVIDERS = {"openai", "deepseek", "groq", "openrouter"}
+OPENAI_COMPATIBLE_PROVIDERS = {"openai", "deepseek", "groq", "openrouter", "huggingface"}
 
 
 def setup_request_logging() -> None:
@@ -77,10 +77,23 @@ def _build_headers(provider: str, api_key: str) -> dict[str, str]:
         "Content-Type": "application/json",
     }
     if provider == "openrouter":
-        headers["Referer"] = "https://chatlist.local"
-        headers["HTTP-Referer"] = "https://chatlist.local"
-        headers["X-Title"] = "ChatList"
+        referer = db.get_setting("openrouter_referer") or "http://localhost:3000"
+        title = db.get_setting("openrouter_app_title") or "ChatList"
+        headers["HTTP-Referer"] = referer
+        headers["X-OpenRouter-Title"] = title
+        headers["X-Title"] = title
     return headers
+
+
+def _create_http_client(timeout: float) -> httpx.Client:
+    """Создаёт HTTP-клиент. По умолчанию игнорирует системный SOCKS-прокси."""
+    use_proxy = (db.get_setting("use_system_proxy") or "0") == "1"
+    if use_proxy:
+        try:
+            return httpx.Client(timeout=timeout, trust_env=True)
+        except ValueError:
+            pass
+    return httpx.Client(timeout=timeout, trust_env=False)
 
 
 def _send_openai_compatible(
@@ -95,7 +108,7 @@ def _send_openai_compatible(
         "messages": [{"role": "user", "content": prompt_text}],
     }
     headers = _build_headers(provider, api_key)
-    with httpx.Client(timeout=timeout) as client:
+    with _create_http_client(timeout) as client:
         response = client.post(model["api_url"], json=payload, headers=headers)
         response.raise_for_status()
         data = response.json()
@@ -145,10 +158,21 @@ def send_prompt(model: dict[str, Any], prompt_text: str) -> str:
         status = exc.response.status_code
         try:
             detail = exc.response.json()
-            error_text = detail.get("error", {}).get("message", str(detail))
+            raw_error = detail.get("error")
+            if isinstance(raw_error, str):
+                error_text = raw_error
+            elif isinstance(raw_error, dict):
+                error_text = raw_error.get("message", str(raw_error))
+            else:
+                error_text = str(detail)
         except Exception:
             error_text = exc.response.text[:200]
         message = f"Ошибка HTTP {status}: {error_text}"
+        if status == 403 and provider == "openrouter":
+            message += (
+                ". OpenRouter заблокировал запрос. "
+                "Создайте новый ключ на openrouter.ai/keys или используйте Hugging Face."
+            )
     except httpx.RequestError as exc:
         message = f"Ошибка сети: {exc}"
     except (ValueError, KeyError) as exc:

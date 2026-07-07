@@ -56,36 +56,44 @@ CREATE TABLE IF NOT EXISTS settings (
 
 SEED_MODELS: list[dict[str, Any]] = [
     {
-        "name": "OpenRouter GPT-4o mini",
+        "name": "HF Llama 3.1 8B (бесплатно)",
+        "api_url": "https://router.huggingface.co/v1/chat/completions",
+        "api_id": "meta-llama/Llama-3.1-8B-Instruct",
+        "api_key_env": "HUGGINGFACE_API_KEY",
+        "is_active": 0,
+        "provider": "huggingface",
+    },
+    {
+        "name": "OpenRouter Free (авто)",
         "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "api_id": "openai/gpt-4o-mini",
+        "api_id": "openrouter/free",
         "api_key_env": "OPENROUTER_API_KEY",
         "is_active": 0,
         "provider": "openrouter",
     },
     {
-        "name": "Tencent Hy3",
+        "name": "Llama 3.3 70B (бесплатно)",
         "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "api_id": "tencent/hy3-preview",
+        "api_id": "meta-llama/llama-3.3-70b-instruct:free",
         "api_key_env": "OPENROUTER_API_KEY",
         "is_active": 0,
         "provider": "openrouter",
     },
     {
-        "name": "GPT-4o",
-        "api_url": "https://api.openai.com/v1/chat/completions",
-        "api_id": "gpt-4o",
-        "api_key_env": "OPENAI_API_KEY",
+        "name": "Qwen3 Coder (бесплатно)",
+        "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "api_id": "qwen/qwen3-coder:free",
+        "api_key_env": "OPENROUTER_API_KEY",
         "is_active": 0,
-        "provider": "openai",
+        "provider": "openrouter",
     },
     {
-        "name": "DeepSeek Chat",
-        "api_url": "https://api.deepseek.com/v1/chat/completions",
-        "api_id": "deepseek-chat",
-        "api_key_env": "DEEPSEEK_API_KEY",
+        "name": "Tencent Hy3 (бесплатно)",
+        "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "api_id": "tencent/hy3:free",
+        "api_key_env": "OPENROUTER_API_KEY",
         "is_active": 0,
-        "provider": "deepseek",
+        "provider": "openrouter",
     },
 ]
 
@@ -94,6 +102,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "db_path": DEFAULT_DB_PATH,
     "log_requests": "1",
     "log_file": "chatlist.log",
+    "use_system_proxy": "0",
+    "openrouter_referer": "http://localhost:3000",
+    "openrouter_app_title": "ChatList",
 }
 
 
@@ -126,7 +137,9 @@ def init_db(db_path: str | None = None) -> None:
     with get_connection(path) as conn:
         conn.executescript(SCHEMA_SQL)
     seed_defaults(db_path=path)
+    remove_paid_models(db_path=path)
     activate_models_with_keys(db_path=path)
+    remove_inactive_models(db_path=path)
 
 
 def seed_defaults(db_path: str | None = None) -> None:
@@ -204,6 +217,24 @@ def get_prompt(prompt_id: int, db_path: str | None = None) -> dict[str, Any] | N
 # --- models ---
 
 
+def is_free_model(api_id: str, provider: str | None = None) -> bool:
+    """Проверяет, что модель бесплатная."""
+    provider_name = (provider or "").lower()
+    if provider_name == "huggingface":
+        return True
+    if provider_name == "openrouter" or api_id.startswith(("openrouter/", "meta-llama/", "qwen/", "tencent/")):
+        return api_id == "openrouter/free" or api_id.endswith(":free")
+    return False
+
+
+def list_non_free_models(db_path: str | None = None) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in list_models(db_path=db_path)
+        if not is_free_model(row["api_id"], row.get("provider"))
+    ]
+
+
 def add_model(
     name: str,
     api_url: str,
@@ -213,6 +244,11 @@ def add_model(
     provider: str | None = None,
     db_path: str | None = None,
 ) -> int:
+    if not is_free_model(api_id, provider):
+        raise ValueError(
+            "Допускаются только бесплатные модели: "
+            "OpenRouter с суффиксом :free или openrouter/free, Hugging Face."
+        )
     with get_connection(db_path) as conn:
         cursor = conn.execute(
             """
@@ -230,6 +266,16 @@ def update_model(model_id: int, **fields: Any) -> None:
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return
+    current = get_model(model_id)
+    if not current:
+        return
+    api_id = str(updates.get("api_id", current["api_id"]))
+    provider = updates.get("provider", current.get("provider"))
+    if not is_free_model(api_id, provider):
+        raise ValueError(
+            "Допускаются только бесплатные модели: "
+            "OpenRouter с суффиксом :free или openrouter/free, Hugging Face."
+        )
     if "is_active" in updates:
         updates["is_active"] = int(updates["is_active"])
     columns = ", ".join(f"{key} = ?" for key in updates)
@@ -287,17 +333,56 @@ def search_models(
 
 
 def activate_models_with_keys(db_path: str | None = None) -> None:
-    """Активирует модели, для которых задан API-ключ в окружении."""
+    """Включает только модели с заданным API-ключом в окружении."""
     import os
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    load_dotenv(".env.local", override=False)
 
     with get_connection(db_path) as conn:
         rows = conn.execute("SELECT id, api_key_env FROM models").fetchall()
         for row in rows:
-            if os.getenv(row["api_key_env"]):
-                conn.execute(
-                    "UPDATE models SET is_active = 1 WHERE id = ?",
-                    (row["id"],),
-                )
+            key = os.getenv(row["api_key_env"])
+            is_active = 1 if key and key.strip() else 0
+            conn.execute(
+                "UPDATE models SET is_active = ? WHERE id = ?",
+                (is_active, row["id"]),
+            )
+
+
+def remove_paid_models(db_path: str | None = None) -> int:
+    """Удаляет платные модели без сохранённых результатов."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute("SELECT id, api_id, provider FROM models").fetchall()
+        deleted = 0
+        for row in rows:
+            if is_free_model(row["api_id"], row["provider"]):
+                continue
+            cursor = conn.execute(
+                """
+                DELETE FROM models
+                WHERE id = ?
+                  AND id NOT IN (SELECT DISTINCT model_id FROM results)
+                """,
+                (row["id"],),
+            )
+            deleted += cursor.rowcount
+        return deleted
+
+
+def remove_inactive_models(db_path: str | None = None) -> int:
+    """Удаляет неактивные модели без сохранённых результатов."""
+    with get_connection(db_path) as conn:
+        cursor = conn.execute(
+            """
+            DELETE FROM models
+            WHERE is_active = 0
+              AND id NOT IN (SELECT DISTINCT model_id FROM results)
+            """
+        )
+        return cursor.rowcount
 
 
 # --- results ---
