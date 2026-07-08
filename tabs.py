@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -17,6 +19,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -235,6 +238,169 @@ class ModelsTab(QWidget):
             return
         try:
             db.delete_model(model_id)
+        except Exception as exc:
+            QMessageBox.critical(self, "ChatList", f"Не удалось удалить: {exc}")
+            return
+        self.reload()
+        self.changed.emit()
+
+
+class PromptEditDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        prompt_data: dict | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Редактирование промта" if prompt_data else "Новый промт")
+
+        layout = QFormLayout(self)
+        self.prompt_edit = QTextEdit(prompt_data["prompt"] if prompt_data else "")
+        self.prompt_edit.setMinimumHeight(140)
+        self.tags_edit = QLineEdit((prompt_data or {}).get("tags") or "")
+
+        layout.addRow("Промт", self.prompt_edit)
+        layout.addRow("Теги", self.tags_edit)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def get_data(self) -> dict[str, str]:
+        return {
+            "prompt": self.prompt_edit.toPlainText().strip(),
+            "tags": self.tags_edit.text().strip(),
+        }
+
+    def accept(self) -> None:
+        data = self.get_data()
+        if not data["prompt"]:
+            QMessageBox.warning(self, "ChatList", "Введите текст промта.")
+            return
+        super().accept()
+
+
+class PromptsTab(QWidget):
+    changed = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+
+        search_row = QHBoxLayout()
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Поиск по тексту промта и тегам...")
+        self.search_edit.textChanged.connect(self.reload)
+        search_row.addWidget(self.search_edit)
+        layout.addLayout(search_row)
+
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["ID", "Дата", "Промт", "Теги"])
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setSortingEnabled(True)
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Stretch
+        )
+        layout.addWidget(self.table)
+
+        buttons = QHBoxLayout()
+        add_btn = QPushButton("Добавить")
+        add_btn.clicked.connect(self.add_prompt)
+        edit_btn = QPushButton("Изменить")
+        edit_btn.clicked.connect(self.edit_prompt)
+        delete_btn = QPushButton("Удалить")
+        delete_btn.clicked.connect(self.delete_prompt)
+        refresh_btn = QPushButton("Обновить")
+        refresh_btn.clicked.connect(self.reload)
+        buttons.addWidget(add_btn)
+        buttons.addWidget(edit_btn)
+        buttons.addWidget(delete_btn)
+        buttons.addWidget(refresh_btn)
+        layout.addLayout(buttons)
+
+        self.reload()
+
+    def reload(self) -> None:
+        query = self.search_edit.text().strip()
+        rows = db.search_prompts(query) if query else db.list_prompts()
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            values = [
+                str(row["id"]),
+                row["created_at"],
+                row["prompt"],
+                row.get("tags") or "",
+            ]
+            for col_index, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if col_index == 2:
+                    item.setTextAlignment(
+                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+                    )
+                self.table.setItem(row_index, col_index, item)
+        self.table.setSortingEnabled(True)
+        self.table.resizeRowsToContents()
+
+    def _selected_prompt_id(self) -> int | None:
+        selected = self.table.selectedItems()
+        if not selected:
+            return None
+        id_item = self.table.item(selected[0].row(), 0)
+        return int(id_item.text()) if id_item else None
+
+    def add_prompt(self) -> None:
+        dialog = PromptEditDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        data = dialog.get_data()
+        db.add_prompt(data["prompt"], data["tags"] or None)
+        self.reload()
+        self.changed.emit()
+
+    def edit_prompt(self) -> None:
+        prompt_id = self._selected_prompt_id()
+        if prompt_id is None:
+            QMessageBox.information(self, "ChatList", "Выберите промт.")
+            return
+        prompt_data = db.get_prompt(prompt_id)
+        if not prompt_data:
+            return
+        dialog = PromptEditDialog(self, prompt_data)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        data = dialog.get_data()
+        db.update_prompt(prompt_id, prompt=data["prompt"], tags=data["tags"])
+        self.reload()
+        self.changed.emit()
+
+    def delete_prompt(self) -> None:
+        prompt_id = self._selected_prompt_id()
+        if prompt_id is None:
+            QMessageBox.information(self, "ChatList", "Выберите промт.")
+            return
+        answer = QMessageBox.question(
+            self,
+            "ChatList",
+            "Удалить выбранный промт?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            db.delete_prompt(prompt_id)
+        except sqlite3.IntegrityError:
+            QMessageBox.warning(
+                self,
+                "ChatList",
+                "Нельзя удалить промт, у которого уже есть сохранённые результаты.",
+            )
+            return
         except Exception as exc:
             QMessageBox.critical(self, "ChatList", f"Не удалось удалить: {exc}")
             return

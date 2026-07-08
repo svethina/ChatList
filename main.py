@@ -29,7 +29,7 @@ import db
 import export_utils
 import models as app_models
 from markdown_viewer import open_markdown_viewer
-from tabs import HistoryTab, ModelsTab, SettingsTab
+from tabs import HistoryTab, ModelsTab, PromptsTab, SettingsTab
 
 RESPONSE_MIN_ROW_HEIGHT = 100
 
@@ -349,17 +349,21 @@ class MainWindow(QMainWindow):
 
         tabs = QTabWidget()
         self.prompt_tab = PromptTab()
+        self.prompts_tab = PromptsTab()
         self.models_tab = ModelsTab()
         self.history_tab = HistoryTab()
         self.settings_tab = SettingsTab()
 
         tabs.addTab(self.prompt_tab, "Запрос")
+        tabs.addTab(self.prompts_tab, "Промты")
         tabs.addTab(self.models_tab, "Модели")
         tabs.addTab(self.history_tab, "История")
         tabs.addTab(self.settings_tab, "Настройки")
         self.setCentralWidget(tabs)
 
         self.models_tab.changed.connect(self.prompt_tab.reload_saved_prompts)
+        self.prompts_tab.changed.connect(self.prompt_tab.reload_saved_prompts)
+        self.prompts_tab.changed.connect(self.history_tab.reload)
         self.prompt_tab.results_saved.connect(self.history_tab.reload)
 
 

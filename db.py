@@ -214,6 +214,30 @@ def get_prompt(prompt_id: int, db_path: str | None = None) -> dict[str, Any] | N
     return _row_to_dict(row) if row else None
 
 
+def update_prompt(
+    prompt_id: int,
+    prompt: str | None = None,
+    tags: str | None = None,
+    db_path: str | None = None,
+) -> None:
+    updates: dict[str, Any] = {}
+    if prompt is not None:
+        updates["prompt"] = prompt
+    if tags is not None:
+        updates["tags"] = tags or None
+    if not updates:
+        return
+    columns = ", ".join(f"{key} = ?" for key in updates)
+    values = list(updates.values()) + [prompt_id]
+    with get_connection(db_path) as conn:
+        conn.execute(f"UPDATE prompts SET {columns} WHERE id = ?", values)
+
+
+def delete_prompt(prompt_id: int, db_path: str | None = None) -> None:
+    with get_connection(db_path) as conn:
+        conn.execute("DELETE FROM prompts WHERE id = ?", (prompt_id,))
+
+
 # --- models ---
 
 
