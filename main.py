@@ -31,6 +31,8 @@ import db
 import export_utils
 import models as app_models
 import prompt_assistant
+import ui_theme
+from about_dialog import show_about_dialog
 from markdown_viewer import open_markdown_viewer
 from prompt_assistant_ui import ImprovePromptDialog
 from tabs import HistoryTab, ModelsTab, PromptsTab, SettingsTab
@@ -447,16 +449,29 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.history_tab, "История")
         tabs.addTab(self.settings_tab, "Настройки")
         self.setCentralWidget(tabs)
+        self._create_menu()
 
         self.models_tab.changed.connect(self.prompt_tab.reload_saved_prompts)
         self.prompts_tab.changed.connect(self.prompt_tab.reload_saved_prompts)
         self.prompts_tab.changed.connect(self.history_tab.reload)
         self.prompt_tab.results_saved.connect(self.history_tab.reload)
+        self.settings_tab.saved.connect(self.on_settings_saved)
+
+    def _create_menu(self) -> None:
+        help_menu = self.menuBar().addMenu("Справка")
+        about_action = help_menu.addAction("О программе")
+        about_action.triggered.connect(lambda: show_about_dialog(self))
+
+    def on_settings_saved(self) -> None:
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            ui_theme.apply_ui_settings(app)
 
 
 def main() -> None:
     db.init_db()
     app = QApplication(sys.argv)
+    ui_theme.apply_ui_settings(app)
     icon = app_icon()
     if icon is not None:
         app.setWindowIcon(icon)

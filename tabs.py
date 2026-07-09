@@ -26,6 +26,8 @@ from PyQt6.QtWidgets import (
 
 import db
 import prompt_assistant
+import ui_theme
+from about_dialog import show_about_dialog
 from markdown_viewer import open_markdown_viewer
 
 
@@ -514,6 +516,8 @@ class SettingsTab(QWidget):
         self.log_file_edit = QLineEdit()
         self.use_proxy_check = QCheckBox("Использовать системный прокси (HTTP/SOCKS)")
         self.improve_model_combo = QComboBox()
+        self.theme_combo = QComboBox()
+        self.font_size_combo = QComboBox()
 
         layout.addRow("Таймаут запроса (сек)", self.timeout_edit)
         layout.addRow("Путь к БД", self.db_path_edit)
@@ -521,14 +525,25 @@ class SettingsTab(QWidget):
         layout.addRow("Файл логов", self.log_file_edit)
         layout.addRow("", self.use_proxy_check)
         layout.addRow("Модель для улучшения промтов", self.improve_model_combo)
+        layout.addRow("Тема интерфейса", self.theme_combo)
+        layout.addRow("Размер шрифта", self.font_size_combo)
 
         save_btn = QPushButton("Сохранить настройки")
         save_btn.clicked.connect(self.save)
         layout.addRow(save_btn)
 
+        about_btn = QPushButton("О программе")
+        about_btn.clicked.connect(self.show_about)
+        layout.addRow(about_btn)
+
         note = QLabel("Изменение пути к БД вступит в силу после перезапуска.")
         note.setWordWrap(True)
         layout.addRow(note)
+
+        for theme_id, theme_label in ui_theme.THEMES.items():
+            self.theme_combo.addItem(theme_label, theme_id)
+        for size in range(ui_theme.MIN_FONT_SIZE, ui_theme.MAX_FONT_SIZE + 1):
+            self.font_size_combo.addItem(str(size), str(size))
 
         self.reload()
 
@@ -539,6 +554,18 @@ class SettingsTab(QWidget):
         self.log_file_edit.setText(db.get_setting("log_file") or "chatlist.log")
         self.use_proxy_check.setChecked((db.get_setting("use_system_proxy") or "0") == "1")
         self._reload_improve_model_combo()
+        self._reload_appearance_controls()
+
+    def _reload_appearance_controls(self) -> None:
+        theme = db.get_setting("ui_theme") or ui_theme.THEME_LIGHT
+        theme_index = self.theme_combo.findData(theme)
+        if theme_index >= 0:
+            self.theme_combo.setCurrentIndex(theme_index)
+
+        font_size = db.get_setting("ui_font_size") or str(ui_theme.DEFAULT_FONT_SIZE)
+        font_index = self.font_size_combo.findData(font_size)
+        if font_index >= 0:
+            self.font_size_combo.setCurrentIndex(font_index)
 
     def _reload_improve_model_combo(self) -> None:
         saved_id = db.get_setting("improve_prompt_model_id") or ""
@@ -580,5 +607,10 @@ class SettingsTab(QWidget):
         )
         improve_model_id = self.improve_model_combo.currentData() or ""
         db.set_setting("improve_prompt_model_id", str(improve_model_id))
+        db.set_setting("ui_theme", self.theme_combo.currentData() or ui_theme.THEME_LIGHT)
+        db.set_setting("ui_font_size", self.font_size_combo.currentData() or str(ui_theme.DEFAULT_FONT_SIZE))
         QMessageBox.information(self, "ChatList", "Настройки сохранены.")
         self.saved.emit()
+
+    def show_about(self) -> None:
+        show_about_dialog(self)

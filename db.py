@@ -74,6 +74,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "openrouter_referer": "http://localhost:3000",
     "openrouter_app_title": "ChatList",
     "improve_prompt_model_id": "",
+    "ui_theme": "light",
+    "ui_font_size": "10",
 }
 
 
