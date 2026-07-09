@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -34,6 +36,13 @@ from prompt_assistant_ui import ImprovePromptDialog
 from tabs import HistoryTab, ModelsTab, PromptsTab, SettingsTab
 
 RESPONSE_MIN_ROW_HEIGHT = 100
+ICON_PATH = Path(__file__).resolve().parent / "assets" / "icon.ico"
+
+
+def app_icon() -> QIcon | None:
+    if ICON_PATH.exists():
+        return QIcon(str(ICON_PATH))
+    return None
 
 
 class SendWorker(QThread):
@@ -421,6 +430,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("ChatList")
         self.resize(1000, 760)
+        icon = app_icon()
+        if icon is not None:
+            self.setWindowIcon(icon)
 
         tabs = QTabWidget()
         self.prompt_tab = PromptTab()
@@ -445,6 +457,9 @@ class MainWindow(QMainWindow):
 def main() -> None:
     db.init_db()
     app = QApplication(sys.argv)
+    icon = app_icon()
+    if icon is not None:
+        app.setWindowIcon(icon)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
