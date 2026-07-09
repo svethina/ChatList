@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 import db
+import prompt_assistant
 from markdown_viewer import open_markdown_viewer
 
 
@@ -512,12 +513,14 @@ class SettingsTab(QWidget):
         self.log_requests_check = QCheckBox("Логировать HTTP-запросы в файл")
         self.log_file_edit = QLineEdit()
         self.use_proxy_check = QCheckBox("Использовать системный прокси (HTTP/SOCKS)")
+        self.improve_model_combo = QComboBox()
 
         layout.addRow("Таймаут запроса (сек)", self.timeout_edit)
         layout.addRow("Путь к БД", self.db_path_edit)
         layout.addRow("", self.log_requests_check)
         layout.addRow("Файл логов", self.log_file_edit)
         layout.addRow("", self.use_proxy_check)
+        layout.addRow("Модель для улучшения промтов", self.improve_model_combo)
 
         save_btn = QPushButton("Сохранить настройки")
         save_btn.clicked.connect(self.save)
@@ -535,6 +538,24 @@ class SettingsTab(QWidget):
         self.log_requests_check.setChecked((db.get_setting("log_requests") or "0") == "1")
         self.log_file_edit.setText(db.get_setting("log_file") or "chatlist.log")
         self.use_proxy_check.setChecked((db.get_setting("use_system_proxy") or "0") == "1")
+        self._reload_improve_model_combo()
+
+    def _reload_improve_model_combo(self) -> None:
+        saved_id = db.get_setting("improve_prompt_model_id") or ""
+        default_model = prompt_assistant.get_default_assistant_model()
+        if not saved_id and default_model is not None:
+            saved_id = str(default_model.id)
+
+        self.improve_model_combo.blockSignals(True)
+        self.improve_model_combo.clear()
+        self.improve_model_combo.addItem("— не выбрана —", "")
+        selected_index = 0
+        for index, row in enumerate(db.list_models(active_only=True), start=1):
+            self.improve_model_combo.addItem(row["name"], str(row["id"]))
+            if saved_id and str(row["id"]) == saved_id:
+                selected_index = index
+        self.improve_model_combo.setCurrentIndex(selected_index)
+        self.improve_model_combo.blockSignals(False)
 
     def save(self) -> None:
         timeout = self.timeout_edit.text().strip()
@@ -557,5 +578,7 @@ class SettingsTab(QWidget):
         db.set_setting(
             "use_system_proxy", "1" if self.use_proxy_check.isChecked() else "0"
         )
+        improve_model_id = self.improve_model_combo.currentData() or ""
+        db.set_setting("improve_prompt_model_id", str(improve_model_id))
         QMessageBox.information(self, "ChatList", "Настройки сохранены.")
         self.saved.emit()

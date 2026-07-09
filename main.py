@@ -28,7 +28,9 @@ from PyQt6.QtWidgets import (
 import db
 import export_utils
 import models as app_models
+import prompt_assistant
 from markdown_viewer import open_markdown_viewer
+from prompt_assistant_ui import ImprovePromptDialog
 from tabs import HistoryTab, ModelsTab, PromptsTab, SettingsTab
 
 RESPONSE_MIN_ROW_HEIGHT = 100
@@ -51,12 +53,29 @@ class SendWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class ImprovePromptWorker(QThread):
+    finished = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, prompt_text: str) -> None:
+        super().__init__()
+        self.prompt_text = prompt_text
+
+    def run(self) -> None:
+        try:
+            result = prompt_assistant.improve_prompt(self.prompt_text)
+            self.finished.emit(result)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class PromptTab(QWidget):
     results_saved = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._worker: SendWorker | None = None
+        self._improve_worker: ImprovePromptWorker | None = None
         self._current_prompt_id: int | None = None
         self._loading_saved_prompt = False
 
@@ -77,6 +96,13 @@ class PromptTab(QWidget):
         self.tags_edit = QLineEdit()
         self.tags_edit.setPlaceholderText("тег1, тег2")
         layout.addWidget(self.tags_edit)
+
+        improve_row = QHBoxLayout()
+        self.improve_button = QPushButton("Улучшить промт")
+        self.improve_button.clicked.connect(self.on_improve_prompt)
+        improve_row.addWidget(self.improve_button)
+        improve_row.addStretch(1)
+        layout.addLayout(improve_row)
 
         buttons_row = QHBoxLayout()
         self.send_button = QPushButton("Отправить")
@@ -162,6 +188,46 @@ class PromptTab(QWidget):
         self.tags_edit.setText(row.get("tags") or "")
         self._loading_saved_prompt = False
         self._current_prompt_id = int(prompt_id)
+
+    def on_improve_prompt(self) -> None:
+        prompt_text = self.prompt_edit.toPlainText().strip()
+        validation_error = prompt_assistant.validate_prompt_for_improvement(prompt_text)
+        if validation_error:
+            QMessageBox.warning(self, "ChatList", validation_error)
+            return
+        if prompt_assistant.get_assistant_model() is None:
+            QMessageBox.warning(
+                self,
+                "ChatList",
+                "Не выбрана модель для улучшения промтов. "
+                "Укажите её на вкладке «Настройки».",
+            )
+            return
+
+        self.set_improve_loading(True)
+        self._improve_worker = ImprovePromptWorker(prompt_text)
+        self._improve_worker.finished.connect(self.on_improve_finished)
+        self._improve_worker.failed.connect(self.on_improve_failed)
+        self._improve_worker.start()
+
+    def on_improve_finished(self, result: prompt_assistant.PromptImprovementResult) -> None:
+        self.set_improve_loading(False)
+        dialog = ImprovePromptDialog(result, self)
+        dialog.variant_selected.connect(self.apply_improved_prompt)
+        dialog.exec()
+
+    def on_improve_failed(self, message: str) -> None:
+        self.set_improve_loading(False)
+        QMessageBox.critical(self, "ChatList", f"Ошибка улучшения промта: {message}")
+        self.status_label.setText("Ошибка улучшения промта")
+
+    def apply_improved_prompt(self, text: str) -> None:
+        self._loading_saved_prompt = True
+        self.prompt_combo.setCurrentIndex(0)
+        self._loading_saved_prompt = False
+        self._current_prompt_id = None
+        self.prompt_edit.setPlainText(text)
+        self.status_label.setText("Улучшенный промт подставлен в поле ввода")
 
     def on_send(self) -> None:
         prompt_text = self.prompt_edit.toPlainText().strip()
@@ -262,9 +328,18 @@ class PromptTab(QWidget):
     def set_loading(self, loading: bool) -> None:
         self.progress.setVisible(loading)
         self.send_button.setEnabled(not loading)
+        self.improve_button.setEnabled(not loading)
         self.save_button.setEnabled(not loading and self.results_table.rowCount() > 0)
         if loading:
             self.status_label.setText("Отправка запросов...")
+
+    def set_improve_loading(self, loading: bool) -> None:
+        self.progress.setVisible(loading)
+        self.send_button.setEnabled(not loading)
+        self.improve_button.setEnabled(not loading)
+        self.save_button.setEnabled(not loading and self.results_table.rowCount() > 0)
+        if loading:
+            self.status_label.setText("Улучшение промта...")
 
     def clear_results_table(self) -> None:
         self.results_table.setRowCount(0)

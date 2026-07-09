@@ -63,38 +63,6 @@ SEED_MODELS: list[dict[str, Any]] = [
         "is_active": 0,
         "provider": "huggingface",
     },
-    {
-        "name": "OpenRouter Free (авто)",
-        "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "api_id": "openrouter/free",
-        "api_key_env": "OPENROUTER_API_KEY",
-        "is_active": 0,
-        "provider": "openrouter",
-    },
-    {
-        "name": "Llama 3.3 70B (бесплатно)",
-        "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "api_id": "meta-llama/llama-3.3-70b-instruct:free",
-        "api_key_env": "OPENROUTER_API_KEY",
-        "is_active": 0,
-        "provider": "openrouter",
-    },
-    {
-        "name": "Qwen3 Coder (бесплатно)",
-        "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "api_id": "qwen/qwen3-coder:free",
-        "api_key_env": "OPENROUTER_API_KEY",
-        "is_active": 0,
-        "provider": "openrouter",
-    },
-    {
-        "name": "Tencent Hy3 (бесплатно)",
-        "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "api_id": "tencent/hy3:free",
-        "api_key_env": "OPENROUTER_API_KEY",
-        "is_active": 0,
-        "provider": "openrouter",
-    },
 ]
 
 DEFAULT_SETTINGS: dict[str, str] = {
@@ -105,6 +73,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "use_system_proxy": "0",
     "openrouter_referer": "http://localhost:3000",
     "openrouter_app_title": "ChatList",
+    "improve_prompt_model_id": "",
 }
 
 
@@ -357,7 +326,7 @@ def search_models(
 
 
 def activate_models_with_keys(db_path: str | None = None) -> None:
-    """Включает только модели с заданным API-ключом в окружении."""
+    """Включает только seed-модели с заданным API-ключом в окружении."""
     import os
 
     from dotenv import load_dotenv
@@ -365,9 +334,12 @@ def activate_models_with_keys(db_path: str | None = None) -> None:
     load_dotenv()
     load_dotenv(".env.local", override=False)
 
+    seed_names = {model["name"] for model in SEED_MODELS}
     with get_connection(db_path) as conn:
-        rows = conn.execute("SELECT id, api_key_env FROM models").fetchall()
+        rows = conn.execute("SELECT id, api_key_env, name FROM models").fetchall()
         for row in rows:
+            if row["name"] not in seed_names:
+                continue
             key = os.getenv(row["api_key_env"])
             is_active = 1 if key and key.strip() else 0
             conn.execute(
