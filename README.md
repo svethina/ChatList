@@ -40,6 +40,21 @@ OPENROUTER_API_KEY=ваш_ключ
 python main.py
 ```
 
+## Установщик (Windows)
+
+Сборка exe и Inno Setup-установщика:
+
+```powershell
+.\build.ps1
+```
+
+Готовые файлы: `dist\ChatList.exe`, `installer\ChatList-Setup-<версия>.exe`.
+
+Публикация на GitHub Releases и сайт на GitHub Pages — пошагово в [docs/PUBLISH.md](docs/PUBLISH.md).
+
+- Релизы: https://github.com/svethina/ChatList/releases
+- Сайт: https://svethina.github.io/ChatList/
+
 ## Использование
 
 1. Откройте вкладку **Запрос**, введите промт и нажмите **Отправить**.

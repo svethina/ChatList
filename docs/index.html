@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ChatList — один промт, несколько нейросетей</title>
+  <meta name="description" content="ChatList — Windows-приложение для отправки одного промта в несколько нейросетей и сравнения ответов." />
+  <link rel="icon" href="assets/icon.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg" aria-hidden="true"></div>
+
+  <header class="top">
+    <a class="brand-mark" href="./">
+      <img src="assets/icon.png" width="36" height="36" alt="" />
+      <span>ChatList</span>
+    </a>
+    <nav>
+      <a href="https://github.com/svethina/ChatList">GitHub</a>
+      <a href="https://github.com/svethina/ChatList/releases">Релизы</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Windows · бесплатно · MIT</p>
+        <h1 class="brand-hero">ChatList</h1>
+        <p class="lead">
+          Один промт — несколько нейросетей. Сравнивайте ответы рядом
+          и сохраняйте лучшие результаты.
+        </p>
+        <div class="cta">
+          <a class="btn btn-primary" id="download-btn" href="https://github.com/svethina/ChatList/releases/latest">
+            Скачать для Windows
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/svethina/ChatList">
+            Исходный код
+          </a>
+        </div>
+        <p class="meta" id="release-meta">Загрузка сведений о релизе…</p>
+      </div>
+
+      <div class="hero-visual" aria-hidden="true">
+        <div class="orb"></div>
+        <img class="app-icon" src="assets/icon.png" width="220" height="220" alt="" />
+      </div>
+    </section>
+
+    <section class="how" id="how">
+      <h2>Как это работает</h2>
+      <p class="section-lead">Три шага от промта до сравнения.</p>
+      <ol class="steps">
+        <li>
+          <span class="step-num">1</span>
+          <div>
+            <strong>Введите промт</strong>
+            <p>Или выберите сохранённый из истории.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">2</span>
+          <div>
+            <strong>Отправьте сразу в несколько моделей</strong>
+            <p>OpenRouter, Hugging Face и другие API.</p>
+          </div>
+        </li>
+        <li>
+          <span class="step-num">3</span>
+          <div>
+            <strong>Сравните и сохраните</strong>
+            <p>Экспорт в Markdown или JSON.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      <strong>ChatList</strong>
+      ·
+      <a href="https://github.com/svethina/ChatList/blob/main/LICENSE">MIT License</a>
+      ·
+      <a href="https://github.com/svethina/ChatList">svethina/ChatList</a>
+    </p>
+  </footer>
+
+  <script src="release.js"></script>
+</body>
+</html>
