@@ -8,10 +8,11 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QVBoxLayout
 
+from version import __version__
+
 ICON_PATH = Path(__file__).resolve().parent / "assets" / "icon.ico"
 
 APP_NAME = "ChatList"
-APP_VERSION = "1.0"
 APP_DESCRIPTION = (
     "ChatList — приложение для отправки одного промта в несколько нейросетей "
     "и сравнения их ответов."
@@ -52,7 +53,7 @@ class AboutDialog(QDialog):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        version = QLabel(f"Версия {APP_VERSION}")
+        version = QLabel(f"Версия {__version__}")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(version)
 

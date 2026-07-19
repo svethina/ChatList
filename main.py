@@ -36,6 +36,7 @@ from about_dialog import show_about_dialog
 from markdown_viewer import open_markdown_viewer
 from prompt_assistant_ui import ImprovePromptDialog
 from tabs import HistoryTab, ModelsTab, PromptsTab, SettingsTab
+from version import __version__
 
 RESPONSE_MIN_ROW_HEIGHT = 100
 ICON_PATH = Path(__file__).resolve().parent / "assets" / "icon.ico"
@@ -430,7 +431,7 @@ class PromptTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("ChatList")
+        self.setWindowTitle(f"ChatList {__version__}")
         self.resize(1000, 760)
         icon = app_icon()
         if icon is not None:
@@ -469,8 +470,13 @@ class MainWindow(QMainWindow):
 
 
 def main() -> None:
+    from env_loader import load_app_env
+
+    load_app_env()
     db.init_db()
     app = QApplication(sys.argv)
+    app.setApplicationName("ChatList")
+    app.setApplicationVersion(__version__)
     ui_theme.apply_ui_settings(app)
     icon = app_icon()
     if icon is not None:

@@ -154,12 +154,12 @@ class ModelsTab(QWidget):
             rows = [
                 r
                 for r in db.search_models(query)
-                if r["is_active"] and db.is_free_model(r["api_id"], r.get("provider"))
+                if db.is_free_model(r["api_id"], r.get("provider"))
             ]
         else:
             rows = [
                 r
-                for r in db.list_models(active_only=True)
+                for r in db.list_models(active_only=False)
                 if db.is_free_model(r["api_id"], r.get("provider"))
             ]
         self.table.setSortingEnabled(False)

@@ -63,6 +63,14 @@ SEED_MODELS: list[dict[str, Any]] = [
         "is_active": 0,
         "provider": "huggingface",
     },
+    {
+        "name": "HF Qwen 2.5 7B (бесплатно)",
+        "api_url": "https://router.huggingface.co/v1/chat/completions",
+        "api_id": "Qwen/Qwen2.5-7B-Instruct",
+        "api_key_env": "HUGGINGFACE_API_KEY",
+        "is_active": 0,
+        "provider": "huggingface",
+    },
 ]
 
 DEFAULT_SETTINGS: dict[str, str] = {
@@ -110,7 +118,7 @@ def init_db(db_path: str | None = None) -> None:
     seed_defaults(db_path=path)
     remove_paid_models(db_path=path)
     activate_models_with_keys(db_path=path)
-    remove_inactive_models(db_path=path)
+    # Seed-модели не удаляем: без ключа они остаются неактивными, но видимыми.
 
 
 def seed_defaults(db_path: str | None = None) -> None:
@@ -331,10 +339,9 @@ def activate_models_with_keys(db_path: str | None = None) -> None:
     """Включает только seed-модели с заданным API-ключом в окружении."""
     import os
 
-    from dotenv import load_dotenv
+    from env_loader import load_app_env
 
-    load_dotenv()
-    load_dotenv(".env.local", override=False)
+    load_app_env()
 
     seed_names = {model["name"] for model in SEED_MODELS}
     with get_connection(db_path) as conn:
@@ -371,16 +378,23 @@ def remove_paid_models(db_path: str | None = None) -> int:
 
 
 def remove_inactive_models(db_path: str | None = None) -> int:
-    """Удаляет неактивные модели без сохранённых результатов."""
+    """Удаляет неактивные не-seed модели без сохранённых результатов."""
+    seed_names = {model["name"] for model in SEED_MODELS}
+    deleted = 0
     with get_connection(db_path) as conn:
-        cursor = conn.execute(
+        rows = conn.execute(
             """
-            DELETE FROM models
+            SELECT id, name FROM models
             WHERE is_active = 0
               AND id NOT IN (SELECT DISTINCT model_id FROM results)
             """
-        )
-        return cursor.rowcount
+        ).fetchall()
+        for row in rows:
+            if row["name"] in seed_names:
+                continue
+            cursor = conn.execute("DELETE FROM models WHERE id = ?", (row["id"],))
+            deleted += cursor.rowcount
+    return deleted
 
 
 # --- results ---

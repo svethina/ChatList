@@ -9,12 +9,12 @@ from typing import Any
 
 import httpx
 import os
-from dotenv import load_dotenv
 
 import db
+from env_loader import load_app_env
+from version import __version__
 
-load_dotenv()
-load_dotenv(".env.local", override=False)
+load_app_env()
 
 logger = logging.getLogger(__name__)
 _logging_configured = False
@@ -44,6 +44,7 @@ def setup_request_logging() -> None:
     logger.setLevel(logging.INFO)
     logger.addHandler(handler)
     _logging_configured = True
+    logger.info("ChatList %s — логирование запросов включено", __version__)
 
 
 def get_api_key(env_var_name: str) -> str | None:
