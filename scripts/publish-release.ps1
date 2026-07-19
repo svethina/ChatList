@@ -1,7 +1,7 @@
-# Создаёт GitHub Release из version.py и прикрепляет установщик.
-# Требования: gh (авторизован), собранный installer\ChatList-Setup-<ver>.exe
+# Creates a GitHub Release from version.py and attaches the installer.
+# Requires: gh (logged in), installer\ChatList-Setup-<ver>.exe
 #
-# Примеры:
+# Examples:
 #   .\scripts\publish-release.ps1
 #   .\scripts\publish-release.ps1 -Draft
 #   .\scripts\publish-release.ps1 -NotesFile .\my-notes.md
@@ -18,78 +18,75 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
-$python = if (Test-Path ".\.venv\Scripts\python.exe") {
-    ".\.venv\Scripts\python.exe"
+if (Test-Path ".\.venv\Scripts\python.exe") {
+    $python = ".\.venv\Scripts\python.exe"
 } else {
-    "python"
+    $python = "python"
 }
 
 $version = & $python -c "from version import __version__; print(__version__)"
 if (-not $version) {
-    throw "Не удалось прочитать __version__ из version.py"
+    throw "Failed to read __version__ from version.py"
 }
+$version = "$version".Trim()
 
 $tag = "v$version"
 $title = "ChatList $version"
-$installer = Join-Path $PWD "installer\ChatList-Setup-$version.exe"
-$portable = Join-Path $PWD "dist\ChatList.exe"
+$installer = Join-Path (Get-Location) "installer\ChatList-Setup-$version.exe"
+$portable = Join-Path (Get-Location) "dist\ChatList.exe"
 
 if (-not $NotesFile) {
-    $NotesFile = Join-Path $PWD ".github\RELEASE_TEMPLATE.md"
+    $NotesFile = Join-Path (Get-Location) ".github\RELEASE_TEMPLATE.md"
 }
 
 Write-Host "Version: $version"
 Write-Host "Tag:     $tag"
 Write-Host "Notes:   $NotesFile"
 
-if (-not (Test-Path $NotesFile)) {
-    throw "Файл заметок не найден: $NotesFile"
+if (-not (Test-Path -LiteralPath $NotesFile)) {
+    throw "Notes file not found: $NotesFile"
 }
 
 if (-not $SkipBuildCheck) {
-    if (-not (Test-Path $installer)) {
-        throw @"
-Установщик не найден: $installer
-
-Сначала соберите проект:
-  .\build.ps1
-"@
+    if (-not (Test-Path -LiteralPath $installer)) {
+        throw "Installer not found: $installer. Run .\build.ps1 first."
     }
 }
 
-$existing = gh release view $tag 2>$null
-if ($LASTEXITCODE -eq 0 -and $existing) {
-    throw "Релиз $tag уже существует. Поднимите версию в version.py или удалите релиз вручную."
+$existing = $null
+try {
+    $existing = gh release view $tag 2>$null
+} catch {
+    $existing = $null
+}
+
+if ($existing) {
+    throw "Release $tag already exists. Bump version.py or delete the release."
 }
 
 $assets = @($installer)
 if ($AlsoAttachExe) {
-    if (-not (Test-Path $portable)) {
-        throw "Не найден portable exe: $portable"
+    if (-not (Test-Path -LiteralPath $portable)) {
+        throw "Portable exe not found: $portable"
     }
     $assets += $portable
 }
 
-$ghArgs = @(
-    "release", "create", $tag
-) + $assets + @(
-    "--title", $title
-    "--notes-file", $NotesFile
-)
+$ghArgs = @("release", "create", $tag) + $assets + @("--title", $title, "--notes-file", $NotesFile)
 
 if ($Draft) {
     $ghArgs += "--draft"
 }
 
-Write-Host "Создание релиза..."
+Write-Host "Creating release..."
 & gh @ghArgs
 if ($LASTEXITCODE -ne 0) {
-    throw "gh release create завершился с кодом $LASTEXITCODE"
+    throw "gh release create failed with exit code $LASTEXITCODE"
 }
 
 $url = "https://github.com/svethina/ChatList/releases/tag/$tag"
 Write-Host ""
-Write-Host "Готово: $url"
+Write-Host "Done: $url"
 if ($Draft) {
-    Write-Host "Это черновик — опубликуйте его на GitHub, когда будете готовы."
+    Write-Host "Draft created. Publish it on GitHub when ready."
 }
